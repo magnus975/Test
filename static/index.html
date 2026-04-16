@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inventory Manager</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1' },
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeIn 0.25s ease-out; }
+    .low-stock { background: linear-gradient(90deg, #fef2f2 0%, #fff 40%); }
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+  </style>
+  <link rel="manifest" href="/static/manifest.json">
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <!-- Header -->
+  <header class="bg-white border-b border-gray-200 sticky top-0 z-30">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 bg-brand-600 rounded-lg flex items-center justify-center">
+          <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+          </svg>
+        </div>
+        <h1 class="text-xl font-bold text-gray-900">Inventory Manager</h1>
+      </div>
+      <div class="flex items-center gap-4">
+        <div id="stats" class="flex items-center gap-4 text-sm text-gray-500"></div>
+        <button id="settingsToggleBtn" title="Settings"
+                class="w-9 h-9 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-8">
+
+    <!-- Alert Banner -->
+    <div id="alertBanner" class="hidden rounded-xl border p-4 fade-in"></div>
+
+    <!-- Add Product Form -->
+    <section class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <h2 class="text-lg font-semibold text-gray-800 mb-4">Add New Product</h2>
+      <form id="addForm" class="flex flex-col sm:flex-row gap-3">
+        <input id="nameInput" type="text" placeholder="Product name"
+               class="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none" required>
+        <input id="minQtyInput" type="number" min="0" placeholder="Min Quantity"
+               class="w-36 rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none" required>
+        <input id="curQtyInput" type="number" min="0" placeholder="Current Qty" value="0"
+               class="w-36 rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+        <button type="submit"
+                class="bg-brand-600 hover:bg-brand-700 text-white font-medium text-sm px-6 py-2.5 rounded-lg transition-colors whitespace-nowrap">
+          + Add Product
+        </button>
+      </form>
+      <p id="formError" class="text-red-600 text-sm mt-2 hidden"></p>
+    </section>
+
+    <!-- Actions -->
+    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+      <h2 class="text-lg font-semibold text-gray-800">Products <span id="productCount" class="text-gray-400 font-normal"></span></h2>
+      <div class="flex items-center gap-3">
+        <button id="exportXlsxBtn"
+                class="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm px-5 py-2.5 rounded-lg transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+          Export Excel
+        </button>
+        <button id="checkAlertBtn"
+                class="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white font-medium text-sm px-5 py-2.5 rounded-lg transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+          </svg>
+          Check &amp; Notify
+        </button>
+      </div>
+    </div>
+
+    <!-- Product Table -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-gray-50 border-b border-gray-200">
+              <th class="text-left px-6 py-3 font-semibold text-gray-600">Product</th>
+              <th class="text-center px-4 py-3 font-semibold text-gray-600 w-36">Min Qty</th>
+              <th class="text-center px-4 py-3 font-semibold text-gray-600 w-44">Current Qty</th>
+              <th class="text-center px-4 py-3 font-semibold text-gray-600 w-28">Status</th>
+              <th class="text-center px-4 py-3 font-semibold text-gray-600 w-20">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="productTable"></tbody>
+        </table>
+      </div>
+      <div id="emptyState" class="hidden py-16 text-center text-gray-400">
+        <svg class="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+        </svg>
+        <p class="font-medium">No products yet</p>
+        <p class="text-sm mt-1">Add your first product above to get started.</p>
+      </div>
+    </div>
+  </main>
+
+<script>
+const API = '/api';
+let products = [];
+
+async function fetchProducts() {
+  const res = await fetch(`${API}/products`);
+  products = await res.json();
+  render();
+}
+
+function render() {
+  const tbody = document.getElementById('productTable');
+  const empty = document.getElementById('emptyState');
+  const count = document.getElementById('productCount');
+
+  const lowCount = products.filter(p => p.current_quantity < p.min_quantity).length;
+  count.textContent = `(${products.length} total${lowCount ? `, ${lowCount} low stock` : ''})`;
+
+  document.getElementById('stats').innerHTML = lowCount
+    ? `<span class="inline-flex items-center gap-1 text-red-600 font-medium"><span class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>${lowCount} low stock</span>`
+    : `<span class="text-green-600 font-medium">All stocked ✓</span>`;
+
+  if (!products.length) {
+    tbody.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  tbody.innerHTML = products.map(p => {
+    const isLow = p.current_quantity < p.min_quantity;
+    return `
+      <tr class="border-b border-gray-100 hover:bg-gray-50/50 transition-colors ${isLow ? 'low-stock' : ''}" data-id="${p.id}">
+        <td class="px-6 py-4">
+          <span class="font-medium text-gray-900">${esc(p.name)}</span>
+        </td>
+        <td class="text-center px-4 py-4">
+          <input type="number" min="0" value="${p.min_quantity}"
+                 onchange="updateField(${p.id}, 'min_quantity', this.value)"
+                 class="w-16 text-center rounded-md border border-gray-300 py-1 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+        </td>
+        <td class="text-center px-4 py-4">
+          <div class="inline-flex items-center gap-1">
+            <button onclick="adjustQty(${p.id}, -1)" class="w-7 h-7 rounded-md bg-gray-100 hover:bg-gray-200 text-gray-600 text-lg leading-none transition-colors">−</button>
+            <input type="number" min="0" value="${p.current_quantity}"
+                   onchange="updateField(${p.id}, 'current_quantity', this.value)"
+                   class="w-16 text-center rounded-md border border-gray-300 py-1 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+            <button onclick="adjustQty(${p.id}, 1)" class="w-7 h-7 rounded-md bg-gray-100 hover:bg-gray-200 text-gray-600 text-lg leading-none transition-colors">+</button>
+          </div>
+        </td>
+        <td class="text-center px-4 py-4">
+          ${isLow
+            ? '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">⚠ Low</span>'
+            : '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">✓ OK</span>'}
+        </td>
+        <td class="text-center px-4 py-4">
+          <button onclick="deleteProduct(${p.id})"
+                  class="text-gray-400 hover:text-red-500 transition-colors" title="Delete">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+            </svg>
+          </button>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+async function updateField(id, field, value) {
+  const qty = Math.max(0, parseInt(value) || 0);
+  await fetch(`${API}/products/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ [field]: qty }),
+  });
+  await fetchProducts();
+}
+
+async function adjustQty(id, delta) {
+  const p = products.find(x => x.id === id);
+  if (!p) return;
+  const newQty = Math.max(0, p.current_quantity + delta);
+  await updateField(id, 'current_quantity', newQty);
+}
+
+async function deleteProduct(id) {
+  if (!confirm('Delete this product?')) return;
+  await fetch(`${API}/products/${id}`, { method: 'DELETE' });
+  await fetchProducts();
+}
+
+document.getElementById('addForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('formError');
+  errEl.classList.add('hidden');
+
+  const name = document.getElementById('nameInput').value.trim();
+  const min_quantity = parseInt(document.getElementById('minQtyInput').value) || 0;
+  const current_quantity = parseInt(document.getElementById('curQtyInput').value) || 0;
+
+  const res = await fetch(`${API}/products`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, min_quantity, current_quantity }),
+  });
+
+  if (!res.ok) {
+    const data = await res.json();
+    errEl.textContent = data.error || 'Failed to add product';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  document.getElementById('nameInput').value = '';
+  document.getElementById('minQtyInput').value = '';
+  document.getElementById('curQtyInput').value = '0';
+  document.getElementById('nameInput').focus();
+  await fetchProducts();
+});
+
+document.getElementById('checkAlertBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('checkAlertBtn');
+  btn.disabled = true;
+  btn.textContent = 'Checking…';
+
+  const res = await fetch(`${API}/check-alerts`, { method: 'POST' });
+  const data = await res.json();
+
+  btn.disabled = false;
+  btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+  </svg> Check &amp; Notify`;
+
+  const banner = document.getElementById('alertBanner');
+  banner.classList.remove('hidden', 'bg-red-50', 'border-red-200', 'bg-green-50', 'border-green-200');
+
+  if (data.low_stock_count > 0) {
+    banner.classList.add('bg-red-50', 'border-red-200');
+    const list = data.alerts.map(a =>
+      `<li class="flex justify-between"><span class="font-medium">${esc(a.product_name)}</span><span class="text-red-600">${a.current_quantity} / ${a.min_quantity}</span></li>`
+    ).join('');
+    banner.innerHTML = `
+      <div class="flex items-start gap-3">
+        <span class="text-red-500 text-xl mt-0.5">⚠️</span>
+        <div class="flex-1">
+          <p class="font-semibold text-red-800">${data.low_stock_count} product${data.low_stock_count > 1 ? 's' : ''} below minimum stock</p>
+          <p class="text-red-600 text-xs mb-2">Alert written to <code class="bg-red-100 px-1 rounded">pending_alerts.json</code></p>
+          <ul class="space-y-1 text-sm text-red-700">${list}</ul>
+        </div>
+      </div>`;
+  } else {
+    banner.classList.add('bg-green-50', 'border-green-200');
+    banner.innerHTML = `
+      <div class="flex items-center gap-3">
+        <span class="text-green-500 text-xl">✅</span>
+        <div>
+          <p class="font-semibold text-green-800">All products are fully stocked!</p>
+          <p class="text-green-600 text-xs">No alerts generated.</p>
+        </div>
+      </div>`;
+  }
+
+  setTimeout(() => {
+    banner.classList.add('hidden');
+  }, 8000);
+});
+
+document.getElementById('exportXlsxBtn').addEventListener('click', () => {
+  if (!products.length) {
+    const banner = document.getElementById('alertBanner');
+    banner.classList.remove('hidden', 'bg-red-50', 'border-red-200', 'bg-green-50', 'border-green-200');
+    banner.classList.add('bg-amber-50', 'border-amber-200');
+    banner.innerHTML = '<div class="flex items-center gap-3"><span class="text-amber-500 text-xl">📋</span><p class="font-semibold text-amber-800">No products to export. Add some products first.</p></div>';
+    setTimeout(() => banner.classList.add('hidden'), 4000);
+    return;
+  }
+  window.location.href = API + '/export-xlsx';
+});
+
+
+// --- Settings ---
+async function fetchSettings() {
+  const res = await fetch(`${API}/settings`);
+  return await res.json();
+}
+
+function openSettings() {
+  const modal = document.getElementById('settingsModal');
+  const msg = document.getElementById('settingsMsg');
+  msg.classList.add('hidden');
+  modal.classList.remove('hidden');
+
+  fetchSettings().then(s => {
+    document.getElementById('alertEmailInput').value = s.alert_email || '';
+  });
+}
+
+function closeSettings() {
+  document.getElementById('settingsModal').classList.add('hidden');
+}
+
+document.getElementById('settingsToggleBtn').addEventListener('click', openSettings);
+document.getElementById('settingsCloseBtn').addEventListener('click', closeSettings);
+document.getElementById('settingsCancelBtn').addEventListener('click', closeSettings);
+document.getElementById('settingsBackdrop').addEventListener('click', closeSettings);
+
+document.getElementById('settingsSaveBtn').addEventListener('click', async () => {
+  const email = document.getElementById('alertEmailInput').value.trim();
+  const msg = document.getElementById('settingsMsg');
+
+  if (!email) {
+    msg.textContent = 'Email address is required.';
+    msg.className = 'text-sm text-red-600';
+    msg.classList.remove('hidden');
+    return;
+  }
+
+  // Basic email format check
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    msg.textContent = 'Please enter a valid email address.';
+    msg.className = 'text-sm text-red-600';
+    msg.classList.remove('hidden');
+    return;
+  }
+
+  const btn = document.getElementById('settingsSaveBtn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
+  const res = await fetch(`${API}/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ alert_email: email }),
+  });
+
+  btn.disabled = false;
+  btn.textContent = 'Save Settings';
+
+  if (res.ok) {
+    msg.textContent = '✓ Settings saved successfully.';
+    msg.className = 'text-sm text-green-600';
+    msg.classList.remove('hidden');
+    setTimeout(() => closeSettings(), 1200);
+  } else {
+    const data = await res.json();
+    msg.textContent = data.error || 'Failed to save settings.';
+    msg.className = 'text-sm text-red-600';
+    msg.classList.remove('hidden');
+  }
+});
+
+// Close modal on Escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeSettings();
+});
+
+fetchProducts();
+</script>
+
+  <!-- Settings Modal -->
+  <div id="settingsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center">
+    <div id="settingsBackdrop" class="absolute inset-0 bg-black/40"></div>
+    <div class="relative bg-white rounded-2xl shadow-xl border border-gray-200 w-full max-w-md mx-4 fade-in">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+        <div class="flex items-center gap-2">
+          <svg class="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          <h3 class="text-lg font-semibold text-gray-900">Settings</h3>
+        </div>
+        <button id="settingsCloseBtn" class="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="px-6 py-5 space-y-4">
+        <div>
+          <label for="alertEmailInput" class="block text-sm font-medium text-gray-700 mb-1.5">Alert Email Address</label>
+          <p class="text-xs text-gray-500 mb-2">Low-stock alert notifications will be sent to this email.</p>
+          <input id="alertEmailInput" type="email" placeholder="email@example.com"
+                 class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+        </div>
+        <p id="settingsMsg" class="text-sm hidden"></p>
+      </div>
+      <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
+        <button id="settingsCancelBtn" class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors">Cancel</button>
+        <button id="settingsSaveBtn" class="bg-brand-600 hover:bg-brand-700 text-white font-medium text-sm px-5 py-2.5 rounded-lg transition-colors">
+          Save Settings
+        </button>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
