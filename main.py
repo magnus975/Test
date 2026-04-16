@@ -64,11 +64,7 @@ def init_db():
             value TEXT
         )
         """
-
-            # ADD YOUR PRODUCTS HERE:
-    conn.execute("INSERT OR IGNORE INTO products (name, min_quantity, current_quantity) VALUES (?, ?, ?)", ("10x48", 5, 2))
-    conn.execute("INSERT OR IGNORE INTO products (name, min_quantity, current_quantity) VALUES (?, ?, ?)", ("10x24", 10, 5))
-    )
+        
     conn.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
         ("alert_email", "magnus@ostin.no"),
