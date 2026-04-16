@@ -64,7 +64,7 @@ def init_db():
             value TEXT
         )
         """
-        
+    )
     conn.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
         ("alert_email", "magnus@ostin.no"),
