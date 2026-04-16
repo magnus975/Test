@@ -249,48 +249,81 @@ document.getElementById('addForm').addEventListener('submit', async (e) => {
 document.getElementById('checkAlertBtn').addEventListener('click', async () => {
   const btn = document.getElementById('checkAlertBtn');
   btn.disabled = true;
-  btn.textContent = 'Checking…';
+  btn.innerHTML = `<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+  </svg> Checking…`;
 
-  const res = await fetch(`${API}/check-alerts`, { method: 'POST' });
-  const data = await res.json();
+  try {
+    const res = await fetch(`${API}/check-alerts`, { method: 'POST' });
+    const data = await res.json();
 
-  btn.disabled = false;
-  btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-    <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
-  </svg> Check &amp; Notify`;
+    const banner = document.getElementById('alertBanner');
+    banner.classList.remove('hidden', 'bg-red-50', 'border-red-200', 'bg-green-50', 'border-green-200', 'bg-blue-50', 'border-blue-200');
 
-  const banner = document.getElementById('alertBanner');
-  banner.classList.remove('hidden', 'bg-red-50', 'border-red-200', 'bg-green-50', 'border-green-200');
+    if (data.low_stock_count > 0) {
+      banner.classList.add('bg-red-50', 'border-red-200');
+      const list = data.alerts.map(a =>
+        `<li class="flex justify-between"><span class="font-medium">${esc(a.product_name)}</span><span class="text-red-600">${a.current_quantity} / ${a.min_quantity}</span></li>`
+      ).join('');
 
-  if (data.low_stock_count > 0) {
+      // Email status line
+      const emailStatus = data.email_status || {};
+      let emailLine = '';
+      if (emailStatus.success) {
+        emailLine = `<p class="text-blue-600 text-xs mt-1 flex items-center gap-1">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+          </svg>
+          📧 ${esc(emailStatus.message)}</p>`;
+      } else if (emailStatus.message) {
+        emailLine = `<p class="text-amber-600 text-xs mt-1">⚠ ${esc(emailStatus.message)}</p>`;
+      }
+
+      banner.innerHTML = `
+        <div class="flex items-start gap-3">
+          <span class="text-red-500 text-xl mt-0.5">⚠️</span>
+          <div class="flex-1">
+            <p class="font-semibold text-red-800">${data.low_stock_count} product${data.low_stock_count > 1 ? 's' : ''} below minimum stock</p>
+            <p class="text-red-600 text-xs mb-1">Alert saved to <code class="bg-red-100 px-1 rounded">pending_alerts.json</code></p>
+            ${emailLine}
+            <ul class="space-y-1 text-sm text-red-700 mt-2">${list}</ul>
+          </div>
+        </div>`;
+    } else {
+      banner.classList.add('bg-green-50', 'border-green-200');
+      banner.innerHTML = `
+        <div class="flex items-center gap-3">
+          <span class="text-green-500 text-xl">✅</span>
+          <div>
+            <p class="font-semibold text-green-800">All products are fully stocked!</p>
+            <p class="text-green-600 text-xs">No alerts generated. No email sent.</p>
+          </div>
+        </div>`;
+    }
+
+    setTimeout(() => {
+      banner.classList.add('hidden');
+    }, 10000);
+  } catch (err) {
+    const banner = document.getElementById('alertBanner');
+    banner.classList.remove('hidden', 'bg-red-50', 'border-red-200', 'bg-green-50', 'border-green-200');
     banner.classList.add('bg-red-50', 'border-red-200');
-    const list = data.alerts.map(a =>
-      `<li class="flex justify-between"><span class="font-medium">${esc(a.product_name)}</span><span class="text-red-600">${a.current_quantity} / ${a.min_quantity}</span></li>`
-    ).join('');
-    banner.innerHTML = `
-      <div class="flex items-start gap-3">
-        <span class="text-red-500 text-xl mt-0.5">⚠️</span>
-        <div class="flex-1">
-          <p class="font-semibold text-red-800">${data.low_stock_count} product${data.low_stock_count > 1 ? 's' : ''} below minimum stock</p>
-          <p class="text-red-600 text-xs mb-2">Alert written to <code class="bg-red-100 px-1 rounded">pending_alerts.json</code></p>
-          <ul class="space-y-1 text-sm text-red-700">${list}</ul>
-        </div>
-      </div>`;
-  } else {
-    banner.classList.add('bg-green-50', 'border-green-200');
     banner.innerHTML = `
       <div class="flex items-center gap-3">
-        <span class="text-green-500 text-xl">✅</span>
+        <span class="text-red-500 text-xl">❌</span>
         <div>
-          <p class="font-semibold text-green-800">All products are fully stocked!</p>
-          <p class="text-green-600 text-xs">No alerts generated.</p>
+          <p class="font-semibold text-red-800">Failed to check alerts</p>
+          <p class="text-red-600 text-xs">${esc(err.message || 'Network error')}</p>
         </div>
       </div>`;
+    setTimeout(() => banner.classList.add('hidden'), 6000);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+    </svg> Check &amp; Notify`;
   }
-
-  setTimeout(() => {
-    banner.classList.add('hidden');
-  }, 8000);
 });
 
 document.getElementById('exportXlsxBtn').addEventListener('click', () => {
@@ -337,42 +370,52 @@ document.getElementById('settingsSaveBtn').addEventListener('click', async () =>
   const msg = document.getElementById('settingsMsg');
 
   if (!email) {
-    msg.textContent = 'Email address is required.';
-    msg.className = 'text-sm text-red-600';
+    msg.textContent = '⚠ Email address is required.';
+    msg.className = 'text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg';
     msg.classList.remove('hidden');
     return;
   }
 
-  // Basic email format check
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    msg.textContent = 'Please enter a valid email address.';
-    msg.className = 'text-sm text-red-600';
+    msg.textContent = '⚠ Please enter a valid email address.';
+    msg.className = 'text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg';
     msg.classList.remove('hidden');
     return;
   }
 
   const btn = document.getElementById('settingsSaveBtn');
   btn.disabled = true;
-  btn.textContent = 'Saving…';
+  btn.innerHTML = `<svg class="w-4 h-4 animate-spin inline mr-1" fill="none" viewBox="0 0 24 24">
+    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+  </svg> Saving…`;
 
-  const res = await fetch(`${API}/settings`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ alert_email: email }),
-  });
+  try {
+    const res = await fetch(`${API}/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alert_email: email }),
+    });
 
-  btn.disabled = false;
-  btn.textContent = 'Save Settings';
+    btn.disabled = false;
+    btn.textContent = 'Save Settings';
 
-  if (res.ok) {
-    msg.textContent = '✓ Settings saved successfully.';
-    msg.className = 'text-sm text-green-600';
-    msg.classList.remove('hidden');
-    setTimeout(() => closeSettings(), 1200);
-  } else {
-    const data = await res.json();
-    msg.textContent = data.error || 'Failed to save settings.';
-    msg.className = 'text-sm text-red-600';
+    if (res.ok) {
+      msg.innerHTML = '✅ Settings saved successfully!';
+      msg.className = 'text-sm text-green-700 bg-green-50 px-3 py-2 rounded-lg';
+      msg.classList.remove('hidden');
+      setTimeout(() => closeSettings(), 1500);
+    } else {
+      const data = await res.json();
+      msg.textContent = '❌ ' + (data.error || 'Failed to save settings.');
+      msg.className = 'text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg';
+      msg.classList.remove('hidden');
+    }
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = 'Save Settings';
+    msg.textContent = '❌ Network error. Please try again.';
+    msg.className = 'text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg';
     msg.classList.remove('hidden');
   }
 });
@@ -406,9 +449,14 @@ fetchProducts();
       <div class="px-6 py-5 space-y-4">
         <div>
           <label for="alertEmailInput" class="block text-sm font-medium text-gray-700 mb-1.5">Alert Email Address</label>
-          <p class="text-xs text-gray-500 mb-2">Low-stock alert notifications will be sent to this email.</p>
+          <p class="text-xs text-gray-500 mb-2">Low-stock alert notifications will be sent to this email when you click "Check & Notify".</p>
           <input id="alertEmailInput" type="email" placeholder="email@example.com"
                  class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+        </div>
+        <div class="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+          <p class="text-xs text-blue-700">
+            <strong>💡 How it works:</strong> When low-stock items are found, an alert email is composed and queued for sending via Gmail. The email includes a detailed table of all products below their minimum quantity.
+          </p>
         </div>
         <p id="settingsMsg" class="text-sm hidden"></p>
       </div>

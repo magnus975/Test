@@ -2,6 +2,8 @@ import json
 import os
 import sqlite3
 import io
+import logging
+import requests
 from datetime import datetime, timezone
 
 from flask import Flask, g, jsonify, request, send_file, send_from_directory
@@ -12,7 +14,19 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(APP_DIR, "inventory.db")
 ALERTS_PATH = os.path.join(APP_DIR, "pending_alerts.json")
 
+# For Render persistence: use /var/data if available (Render Disk), otherwise APP_DIR.
+# Attach a Render Disk at /var/data and set env INVENTORY_DB_DIR=/var/data for persistence.
+_db_dir = os.environ.get("INVENTORY_DB_DIR")
+if _db_dir and os.path.isdir(_db_dir):
+    DB_PATH = os.path.join(_db_dir, "inventory.db")
+    ALERTS_PATH = os.path.join(_db_dir, "pending_alerts.json")
+
+# Wingman API configuration for sending emails
+WINGMAN_API_BASE = os.environ.get("WINGMAN_API_BASE", "")
+WINGMAN_API_TOKEN = os.environ.get("WINGMAN_API_TOKEN", "")
+
 app = Flask(__name__, static_folder="static")
+logger = logging.getLogger(__name__)
 
 
 def get_db():
@@ -65,6 +79,154 @@ def get_setting(key, default=None):
     row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
     conn.close()
     return row[0] if row else default
+
+
+# --- Email Sending ---
+
+def _build_alert_email_html(low_stock_items):
+    """Build a formatted HTML email body for low-stock alerts."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    rows_html = ""
+    for item in low_stock_items:
+        deficit = item["min_quantity"] - item["current_quantity"]
+        rows_html += (
+            f'<tr style="border-bottom:1px solid #e5e7eb;">'
+            f'<td style="padding:10px 14px;font-weight:500;">{item["product_name"]}</td>'
+            f'<td style="padding:10px 14px;text-align:center;">{item["current_quantity"]}</td>'
+            f'<td style="padding:10px 14px;text-align:center;">{item["min_quantity"]}</td>'
+            f'<td style="padding:10px 14px;text-align:center;color:#dc2626;font-weight:600;">-{deficit}</td>'
+            f'</tr>'
+        )
+
+    html = f"""
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;">
+      <div style="background:#0284c7;color:white;padding:20px 24px;border-radius:12px 12px 0 0;">
+        <h2 style="margin:0;font-size:20px;">⚠️ Low Stock Alert</h2>
+        <p style="margin:6px 0 0;opacity:0.85;font-size:14px;">{len(low_stock_items)} product{"s" if len(low_stock_items) != 1 else ""} below minimum — {now}</p>
+      </div>
+      <div style="border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;font-size:14px;">
+          <thead>
+            <tr style="background:#f9fafb;">
+              <th style="padding:10px 14px;text-align:left;font-weight:600;color:#374151;">Product</th>
+              <th style="padding:10px 14px;text-align:center;font-weight:600;color:#374151;">Current</th>
+              <th style="padding:10px 14px;text-align:center;font-weight:600;color:#374151;">Minimum</th>
+              <th style="padding:10px 14px;text-align:center;font-weight:600;color:#374151;">Deficit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows_html}
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:16px;font-size:12px;color:#6b7280;">Sent by Inventory Manager</p>
+    </div>
+    """
+    return html
+
+
+def _build_alert_email_plain(low_stock_items):
+    """Build plain-text fallback for low-stock alerts."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    lines = [
+        f"LOW STOCK ALERT — {now}",
+        f"{len(low_stock_items)} product(s) below minimum stock level:",
+        "",
+    ]
+    for item in low_stock_items:
+        deficit = item["min_quantity"] - item["current_quantity"]
+        lines.append(
+            f"  • {item['product_name']}: {item['current_quantity']}/{item['min_quantity']} (need {deficit} more)"
+        )
+    lines.append("")
+    lines.append("— Inventory Manager")
+    return "\n".join(lines)
+
+
+def send_alert_email(to_email, low_stock_items):
+    """Send a low-stock alert email via the Gmail integration.
+
+    Returns a dict with 'success' (bool) and 'message' (str).
+    The function writes a pending_email.json file that Material (the Wingman
+    agent) picks up and sends via GMAIL_SEND_EMAIL.  If WINGMAN_API_BASE and
+    WINGMAN_API_TOKEN are configured, it also attempts to call the API directly.
+    """
+    if not to_email:
+        return {"success": False, "message": "No alert email configured"}
+    if not low_stock_items:
+        return {"success": False, "message": "No low-stock items to report"}
+
+    count = len(low_stock_items)
+    subject = f"⚠️ Low Stock Alert: {count} product{'s' if count != 1 else ''} below minimum"
+    body_html = _build_alert_email_html(low_stock_items)
+    body_plain = _build_alert_email_plain(low_stock_items)
+
+    # Always write the pending email file so the Wingman agent can pick it up
+    email_payload = {
+        "to_email": to_email,
+        "subject": subject,
+        "body_html": body_html,
+        "body_plain": body_plain,
+        "low_stock_items": low_stock_items,
+        "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
+        "status": "pending",
+    }
+
+    pending_email_path = os.path.join(os.path.dirname(ALERTS_PATH), "pending_email.json")
+    with open(pending_email_path, "w") as f:
+        json.dump(email_payload, f, indent=2)
+
+    # Attempt direct API call if credentials are configured
+    if WINGMAN_API_BASE and WINGMAN_API_TOKEN:
+        try:
+            resp = requests.post(
+                f"{WINGMAN_API_BASE}/api/v1/execute",
+                headers={
+                    "Authorization": f"Bearer {WINGMAN_API_TOKEN}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "tool_name": "GMAIL_SEND_EMAIL",
+                    "arguments": json.dumps({
+                        "recipient_email": to_email,
+                        "subject": subject,
+                        "body": body_html,
+                        "is_html": True,
+                    }),
+                },
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                email_payload["status"] = "sent"
+                with open(pending_email_path, "w") as f:
+                    json.dump(email_payload, f, indent=2)
+                return {"success": True, "message": f"Email sent to {to_email}"}
+            else:
+                logger.warning("Wingman API returned %s: %s", resp.status_code, resp.text)
+                email_payload["status"] = "api_error"
+                email_payload["api_error"] = resp.text[:500]
+                with open(pending_email_path, "w") as f:
+                    json.dump(email_payload, f, indent=2)
+        except Exception as e:
+            logger.warning("Failed to call Wingman API: %s", e)
+            email_payload["status"] = "api_unreachable"
+            with open(pending_email_path, "w") as f:
+                json.dump(email_payload, f, indent=2)
+
+    # If API wasn't configured or failed, the pending_email.json is still written
+    # for the Wingman agent to pick up and send.
+    if email_payload["status"] == "pending":
+        return {
+            "success": True,
+            "message": f"Alert email queued for {to_email} (pending_email.json written)",
+        }
+    elif email_payload["status"] == "sent":
+        return {"success": True, "message": f"Email sent to {to_email}"}
+    else:
+        return {
+            "success": True,
+            "message": f"Alert email queued for {to_email} (API call failed, pending_email.json written for agent pickup)",
+        }
 
 
 # --- Routes ---
@@ -205,13 +367,26 @@ def check_alerts():
     ]
 
     payload = {
-        "generated_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
         "low_stock_count": len(alerts),
         "alerts": alerts,
     }
 
     with open(ALERTS_PATH, "w") as f:
         json.dump(payload, f, indent=2)
+
+    # Send the alert email if there are low-stock items
+    email_result = {"success": False, "message": "No low-stock items"}
+    if alerts:
+        alert_email = get_setting("alert_email")
+        if alert_email:
+            email_result = send_alert_email(alert_email, alerts)
+        else:
+            email_result = {"success": False, "message": "No alert email configured in settings"}
+    else:
+        email_result = {"success": True, "message": "All products are fully stocked — no email needed"}
+
+    payload["email_status"] = email_result
 
     return jsonify(payload)
 
@@ -221,6 +396,16 @@ def get_pending_alerts():
     if not os.path.exists(ALERTS_PATH):
         return jsonify({"low_stock_count": 0, "alerts": []})
     with open(ALERTS_PATH) as f:
+        return jsonify(json.load(f))
+
+
+@app.route("/api/pending-email", methods=["GET"])
+def get_pending_email():
+    """Return the pending email payload (for agent pickup)."""
+    pending_path = os.path.join(os.path.dirname(ALERTS_PATH), "pending_email.json")
+    if not os.path.exists(pending_path):
+        return jsonify({"status": "none", "message": "No pending email"})
+    with open(pending_path) as f:
         return jsonify(json.load(f))
 
 
