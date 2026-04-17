@@ -26,6 +26,8 @@ WINGMAN_API_BASE = os.environ.get("WINGMAN_API_BASE", "")
 WINGMAN_API_TOKEN = os.environ.get("WINGMAN_API_TOKEN", "")
 
 app = Flask(__name__, static_folder="static")
+with app.app_context():
+	init_db()
 logger = logging.getLogger(__name__)
 
 
