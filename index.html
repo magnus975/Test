@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+
+<html lang="no">
+<head>
+<meta charset="UTF-8">
+<title>Inventory Manager</title>
+<style>
+body {
+    font-family: Arial;
+    margin: 40px;
+    background: #f4f6f8;
+}
+h1 { margin-bottom: 20px; }
+
+input, button {
+padding: 8px;
+margin: 5px;
+}
+
+table {
+width: 100%;
+border-collapse: collapse;
+background: white;
+}
+
+th, td {
+padding: 10px;
+border-bottom: 1px solid #ddd;
+text-align: center;
+}
+
+th {
+background: #0284c7;
+color: white;
+}
+
+.low {
+background-color: #fee2e2;
+}
+
+.ok {
+background-color: #dcfce7;
+}
+
+button {
+cursor: pointer;
+} </style>
+
+</head>
+
+<body>
+
+<h1>📦 Inventory Manager</h1>
+
+<h3>➕ Legg til produkt</h3>
+<input id="name" placeholder="Navn">
+<input id="min" type="number" placeholder="Min">
+<input id="qty" type="number" placeholder="Antall">
+<button onclick="addProduct()">Legg til</button>
+
+<h3>📋 Produkter</h3>
+<table>
+<thead>
+<tr>
+<th>Navn</th>
+<th>Antall</th>
+<th>Min</th>
+<th>Status</th>
+<th>Handling</th>
+</tr>
+</thead>
+<tbody id="table"></tbody>
+</table>
+
+<script>
+async function loadProducts() {
+    const res = await fetch('/api/products');
+    const products = await res.json();
+
+    const table = document.getElementById('table');
+    table.innerHTML = '';
+
+    products.forEach(p => {
+        const tr = document.createElement('tr');
+
+        const isLow = p.current_quantity < p.min_quantity;
+        tr.className = isLow ? 'low' : 'ok';
+
+        tr.innerHTML = `
+            <td>${p.name}</td>
+            <td>
+                <input type="number" value="${p.current_quantity}" 
+                onchange="updateQty(${p.id}, this.value)">
+            </td>
+            <td>${p.min_quantity}</td>
+            <td>${isLow ? '⚠️ Lav lager' : 'OK'}</td>
+            <td>
+                <button onclick="deleteProduct(${p.id})">Slett</button>
+            </td>
+        `;
+
+        table.appendChild(tr);
+    });
+}
+
+async function addProduct() {
+    const name = document.getElementById('name').value;
+    const min = document.getElementById('min').value;
+    const qty = document.getElementById('qty').value;
+
+    await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            name: name,
+            min_quantity: parseInt(min),
+            current_quantity: parseInt(qty)
+        })
+    });
+
+    loadProducts();
+}
+
+async function updateQty(id, qty) {
+    await fetch(`/api/products/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ current_quantity: parseInt(qty) })
+    });
+}
+
+async function deleteProduct(id) {
+    await fetch(`/api/products/${id}`, {
+        method: 'DELETE'
+    });
+
+    loadProducts();
+}
+
+// last inn produkter når siden åpnes
+window.onload = loadProducts;
+</script>
+
+</body>
+</html>
