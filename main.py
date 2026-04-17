@@ -26,8 +26,7 @@ WINGMAN_API_BASE = os.environ.get("WINGMAN_API_BASE", "")
 WINGMAN_API_TOKEN = os.environ.get("WINGMAN_API_TOKEN", "")
 
 app = Flask(__name__, static_folder="static")
-with app.app_context():
-	init_db()
+
 logger = logging.getLogger(__name__)
 
 
@@ -522,6 +521,5 @@ def update_settings():
 
 
 if __name__ == "__main__":
-    init_db()
-    print(f"✅ Inventory Management App running at http://0.0.0.0:5000")
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    init_db() # Lager databasen hvis den ikke finnes
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
